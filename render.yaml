@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: x-capital-neural-horizon
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: DB_FILE
+        value: ./data/xcapital.db
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: BTC_ADDRESS
+        sync: false
+      - key: USDT_TRC20_ADDRESS
+        sync: false
+      - key: USDC_ERC20_ADDRESS
+        sync: false

@@ -226,12 +226,15 @@ async function createPendingRegistration({ name, email, passwordHash }) {
 
 function issueSession(res, user) {
   const token = jwt.sign({ sub: user.id, role: user.role }, JWT_SECRET, { expiresIn: "7d" });
-  res.cookie("xcapital_session", token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 7 * 24 * 60 * 60 * 1000
-  });
+  const parts = [
+    `xcapital_session=${encodeURIComponent(token)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${7 * 24 * 60 * 60}`
+  ];
+  if (process.env.NODE_ENV === "production") parts.push("Secure");
+  res.setHeader("Set-Cookie", parts.join("; "));
 }
 
 function clearSession(res) {
@@ -427,6 +430,7 @@ app.post("/api/auth/resend-code", async (req, res) => {
 app.post("/api/auth/login", async (req, res) => {
   const email = String(req.body.email || "").trim().toLowerCase();
   const password = String(req.body.password || "");
+  console.log(`[AUTH] POST /api/auth/login received for ${email}`);
   const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
   if (!user) {
     const pending = pendingByEmail(email);
@@ -435,11 +439,15 @@ app.post("/api/auth/login", async (req, res) => {
     }
     return res.status(401).json({ message: "Invalid email or password." });
   }
-  if (!(await bcrypt.compare(password, user.password_hash))) return res.status(401).json({ message: "Invalid email or password." });
+  if (!(await bcrypt.compare(password, user.password_hash))) {
+    console.log(`[AUTH] Login rejected: invalid password for ${email}`);
+    return res.status(401).json({ message: "Invalid email or password." });
+  }
   if (!user.email_verified) return res.status(403).json({ message: "Please verify your email first.", requiresVerification: true });
   issueSession(res, user);
   logAudit(user, "login", user.id);
-  res.json({ ok: true, user: publicUser(user) });
+  console.log(`[AUTH] Login successful: ${email} role=${user.role}`);
+  return res.status(200).json({ ok: true, user: publicUser(user) });
 });
 
 app.post("/api/auth/logout", (req, res) => {

@@ -3,6 +3,7 @@ require("dotenv").config();
 const fs = require("fs");
 const express = require("express");
 const path = require("path");
+const publicDir = path.join(__dirname, "public");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
@@ -261,18 +262,30 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-async function sendVerificationEmail(email, name, code) {
-  if (!mailer) {
-    if (process.env.NODE_ENV !== "production") console.log(`[DEV OTP] ${email}: ${code}`);
+
+function bootstrapAdmin() {
+  const email = String(process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+  const password = String(process.env.ADMIN_PASSWORD || "");
+  if (!email || !password) {
+    console.log("Admin bootstrap skipped: ADMIN_EMAIL/ADMIN_PASSWORD not configured.");
     return;
   }
-  await mailer.sendMail({
-    from: process.env.MAIL_FROM || process.env.SMTP_USER,
-    to: email,
-    subject: "Your X-CAPITAL email verification code",
-    text: `Hello ${name},\n\nYour X-CAPITAL verification code is ${code}.\nIt expires in 10 minutes.\n\nIf you did not create this account, ignore this email.`
-  });
+  if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error("ADMIN_EMAIL must be a valid email address.");
+  if (password.length < 8) throw new Error("ADMIN_PASSWORD must be at least 8 characters.");
+  const existing = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  const passwordHash = bcrypt.hashSync(password, 12);
+  if (existing) {
+    db.prepare("UPDATE users SET role='admin', email_verified=1, password_hash=? WHERE id=?").run(passwordHash, existing.id);
+    console.log(`Admin bootstrap ready for ${email} (existing account promoted/verified).`);
+    return;
+  }
+  const admin = { id: id(), name: "X-CAPITAL Administrator", email, password_hash: passwordHash, role: "admin", email_verified: 1, available_balance: 0, created_at: now() };
+  db.prepare(`INSERT INTO users (id,name,email,password_hash,role,email_verified,available_balance,created_at) VALUES (@id,@name,@email,@password_hash,@role,@email_verified,@available_balance,@created_at)`).run(admin);
+  db.prepare(`INSERT INTO transactions (id,user_id,type,details,amount,status,created_at) VALUES (?,?,?,?,?,?,?)`).run(id(), admin.id, "System", "Admin account bootstrapped from Render environment", 0, "Completed", now());
+  console.log(`Admin bootstrap created ${email}.`);
 }
+
+bootstrapAdmin();
 
 function publicUser(user) {
   return {
@@ -661,6 +674,8 @@ app.post("/api/admin/credits", requireAdmin, (req, res) => {
 });
 
 /* Serve SPA */
+app.use(express.static(publicDir));
+
 app.get("/*splat", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });

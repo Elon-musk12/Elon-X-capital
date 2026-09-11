@@ -69,3 +69,23 @@ npm start
 ```
 
 For local development without an email provider, set `NODE_ENV=development` and omit `RESEND_API_KEY`. The server will print the OTP to the terminal. Do not rely on this development fallback in production.
+
+
+### SQLite startup directory fix
+The server now creates the parent directory of `DB_FILE` automatically before initializing `better-sqlite3`, preventing Render startup failure when `./data/` does not yet exist.
+
+
+### Express 5 catch-all route fix
+The SPA catch-all route uses the Express 5-compatible `/*splat` syntax instead of a bare `*` wildcard.
+
+## Admin auto-bootstrap
+
+If `ADMIN_EMAIL` and `ADMIN_PASSWORD` are configured in Render Environment Variables, the server automatically creates that account as a verified administrator on startup. If the email already exists, the account is promoted to `admin`, marked verified, and its password is synchronized to `ADMIN_PASSWORD`.
+
+This is intentionally limited to the configured admin email; normal investor registrations still require email verification. Keep `ADMIN_PASSWORD` in Render Environment Variables only and never commit it to GitHub.
+
+## Admin auto-bootstrap
+
+If `ADMIN_EMAIL` and `ADMIN_PASSWORD` are configured in Render Environment Variables, the server automatically creates that account as a verified administrator on startup. If the email already exists, the account is promoted to `admin`, marked verified, and its password is synchronized to `ADMIN_PASSWORD`.
+
+This is intentionally limited to the configured admin email; normal investor registrations still require email verification. Keep `ADMIN_PASSWORD` in Render Environment Variables only and never commit it to GitHub.

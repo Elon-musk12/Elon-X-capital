@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>X-CAPITAL | Neural Horizon Terminal</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <!-- AUTHENTICATION OVERLAY -->
+  <div id="auth-modal-overlay" class="modal-overlay">
+    <div class="auth-card glass-panel">
+      <div class="brand-logo justify-center margin-bottom">
+        <span class="x-logo">X</span>
+        <span class="brand-title">CAPITAL</span>
+      </div>
+      <p class="txt-center lbl-muted margin-bottom-lg">Neural Horizon Institutional Terminal</p><div class="auth-security-row"><span>● Secure session</span><span>● Email verification</span><span>● Server-backed account</span></div>
+
+      <div class="auth-tabs">
+        <button id="tab-login" class="auth-tab active" onclick="switchAuthTab('login')">Sign In</button>
+        <button id="tab-register" class="auth-tab" onclick="switchAuthTab('register')">Create Account</button>
+      </div>
+
+      <!-- Login Form -->
+      <form id="form-login" onsubmit="handleAuth(event, 'login')">
+        <div class="form-group">
+          <label>Email Address</label>
+          <input type="email" id="login-email" class="input-dark-lg" placeholder="investor@x-capital.com" required>
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="login-pass" class="input-dark-lg" placeholder="Enter password" required>
+        </div>
+        <button type="submit" class="btn-primary-lg margin-top-lg">Sign In to Terminal ➔</button>
+      </form>
+
+      <!-- Register Form -->
+      <form id="form-register" class="hidden" onsubmit="handleAuth(event, 'register')">
+        <div class="form-group">
+          <label>Full Name</label>
+          <input type="text" id="reg-name" class="input-dark-lg" placeholder="e.g. Azeez" required>
+        </div>
+        <div class="form-group">
+          <label>Email Address</label>
+          <input type="email" id="reg-email" class="input-dark-lg" placeholder="investor@x-capital.com" required>
+        </div>
+        <div class="form-group">
+          <label>Create Password</label>
+          <input type="password" id="reg-pass" class="input-dark-lg" placeholder="Create secure password" required>
+        </div>
+        <button type="submit" class="btn-primary-lg margin-top-lg">Complete Registration ➔</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- CRYPTO DEPOSIT MODAL -->
+  <div id="deposit-modal" class="modal-overlay hidden">
+    <div class="modal-card glass-panel crypto-modal">
+      <div class="modal-header">
+        <div><span class="eyebrow">ON-CHAIN TRANSFER</span><h3>Deposit Crypto</h3></div>
+        <button class="close-btn" onclick="closeModal('deposit-modal')">✕</button>
+      </div>
+      <div class="modal-body margin-top">
+        <div class="network-warning">
+          <strong>Send only the selected asset on the selected network.</strong>
+          <span>Wrong-network transfers may be permanently unrecoverable.</span>
+        </div>
+        <div class="form-grid-2 margin-top">
+          <div class="form-group">
+            <label>Asset / Network</label>
+            <select id="dep-asset" class="input-dark-lg">
+              <option value="USDT (TRC-20)">USDT · TRC-20</option>
+              <option value="USDC (ERC-20)">USDC · ERC-20</option>
+              <option value="BTC">BTC · Bitcoin</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Declared USD Equivalent</label>
+            <input type="number" id="dep-amount" class="input-dark-lg" value="500" min="10" step="0.01">
+          </div>
+        </div>
+        <div class="wallet-copy-box margin-top">
+          <div class="wallet-label-row"><label>Receiving address</label><span id="dep-network-label" class="status-badge">TRON</span></div>
+          <div class="copy-input-wrap">
+            <input type="text" id="dep-wallet-address" value="Loading secure deposit address…" readonly class="input-dark">
+            <button class="btn-copy" onclick="copyWalletAddress()">Copy</button>
+          </div>
+          <small id="dep-network-note" class="lbl-muted">Loading network details…</small>
+        </div>
+        <div class="form-group margin-top">
+          <label>Blockchain transaction hash / TXID</label>
+          <input type="text" id="dep-txhash" class="input-dark-lg" placeholder="Paste transaction hash after sending">
+        </div>
+        <div class="deposit-steps margin-top">
+          <span><b>1</b> Send crypto</span><span><b>2</b> Paste TXID</span><span><b>3</b> Submit for review</span>
+        </div>
+        <p class="lbl-muted margin-top small-note">The declared amount is a notification value. Operations must independently verify the on-chain transaction, confirmations, network and conversion before crediting funds.</p>
+        <button class="btn-primary-lg margin-top-lg" onclick="submitDeposit()">Submit Deposit for Verification ➔</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- WITHDRAWAL MODAL -->
+  <div id="withdraw-modal" class="modal-overlay hidden">
+    <div class="modal-card glass-panel">
+      <div class="modal-header">
+        <h3>💸 Request Withdrawal</h3>
+        <button class="close-btn" onclick="closeModal('withdraw-modal')">✕</button>
+      </div>
+      <div class="modal-body margin-top">
+        <div class="form-group">
+          <label>Withdrawal Currency</label>
+          <select id="with-asset" class="input-dark-lg">
+            <option value="USDT (TRC-20)">USDT (TRC-20)</option>
+            <option value="USDC (ERC-20)">USDC (ERC-20)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Amount ($ USD)</label>
+          <input type="number" id="with-amount" class="input-dark-lg" value="100" min="10">
+        </div>
+        <div class="form-group">
+          <label>Destination External Wallet Address</label>
+          <input type="text" id="with-address" class="input-dark-lg" placeholder="Paste your wallet address" required>
+        </div>
+        <button class="btn-primary-lg margin-top-lg" onclick="submitWithdrawal()">Submit Withdrawal Request ➔</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MASTER ADMIN PANEL MODAL -->
+  <div id="admin-modal" class="modal-overlay hidden">
+    <div class="modal-card glass-panel" style="max-width: 850px; max-height: 90vh; overflow-y: auto;">
+      <div class="modal-header">
+        <h3>👑 Master Admin Command Center</h3>
+        <button class="close-btn" onclick="closeModal('admin-modal')">✕</button>
+      </div>
+      <div class="modal-body margin-top">
+
+        <!-- Operations / valuation policy -->
+        <div class="admin-section admin-notice">
+          <h4>🛡️ Operations & Verification</h4>
+          <p class="lbl-muted margin-top">
+            Deposits and withdrawals are verified through the server-side ledger. Market values are
+            not changed by the admin panel. Connect an approved market-data or fund-NAV source before
+            enabling live valuation for production.
+          </p>
+        </div>
+
+        <div class="admin-stats margin-top-lg">
+          <div class="admin-stat"><span class="lbl-muted">Investors</span><strong id="admin-investor-count">—</strong></div>
+          <div class="admin-stat"><span class="lbl-muted">Pending Deposits</span><strong id="admin-pending-deposit-total">$0.00</strong></div>
+          <div class="admin-stat"><span class="lbl-muted">Pending Withdrawals</span><strong id="admin-pending-withdrawal-total">$0.00</strong></div>
+        </div>
+
+        <!-- Pending Deposits -->
+        <div class="admin-section margin-top-lg">
+          <h4>⏳ Pending Deposit Requests</h4>
+          <table class="table-dark margin-top">
+            <thead>
+              <tr><th>Investor</th><th>Email</th><th>Asset</th><th>Amount</th><th>TX Hash</th><th>Submitted</th><th>Action</th></tr>
+            </thead>
+            <tbody id="admin-pending-deposits-body"></tbody>
+          </table>
+        </div>
+
+        <!-- Pending Withdrawals -->
+        <div class="admin-section margin-top-lg">
+          <h4>⏳ Pending Withdrawal Requests</h4>
+          <table class="table-dark margin-top">
+            <thead>
+              <tr><th>Investor</th><th>Address</th><th>Amount</th><th>Action</th></tr>
+            </thead>
+            <tbody id="admin-pending-withdrawals-body"></tbody>
+          </table>
+        </div>
+
+        <!-- Direct Credit Tool -->
+        <div class="admin-section margin-top-lg">
+          <h4>💳 Direct Manual Balance Credit</h4>
+          <div class="form-flex-row margin-top">
+            <input type="email" id="admin-credit-email" class="input-dark" placeholder="User Email">
+            <input type="number" id="admin-credit-amt" class="input-dark" placeholder="Amount ($)">
+            <button class="btn-primary" onclick="adminDirectCredit()">Credit User</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN APP LAYOUT -->
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="x-logo">X</span>
+      <div class="brand-text">
+        <span class="brand-title">CAPITAL</span>
+        <span class="brand-sub">NEURAL HORIZON</span>
+      </div>
+    </div>
+
+    <nav class="nav-list">
+      <button class="nav-item active" onclick="switchView('view-dashboard')">🏠 Dashboard</button>
+      <button class="nav-item" onclick="switchView('view-portfolio')">📊 Portfolio</button>
+      <button class="nav-item" onclick="switchView('view-markets')">📈 Markets</button>
+      <button class="nav-item" onclick="switchView('view-trade')">💱 Trade</button>
+      <button class="nav-item" onclick="switchView('view-investments')">💰 Investments</button>
+      <button class="nav-item" onclick="switchView('view-wallet')">👛 Wallet</button>
+      <button class="nav-item" onclick="switchView('view-transactions')">📋 Transactions</button>
+      <button class="nav-item" onclick="switchView('view-settings')">⚙️ Settings</button>
+      <button class="nav-item txt-red hidden" id="admin-nav-btn" onclick="openAdminPanel()">👑 Admin Control</button>
+    </nav>
+  </aside>
+
+  <div class="layout-wrapper">
+    <!-- TOP HEADER -->
+    <header class="global-header glass-panel"><div id="app-toast" class="app-toast hidden"></div>
+      <div class="search-bar">
+        <span>🔍</span>
+        <input type="text" placeholder="Search assets, markets, or opportunities...">
+      </div>
+      <div class="header-right">
+        <span class="status-dot">● Market Open</span>
+        <div class="user-profile">
+          <div class="avatar">👤</div>
+          <div>
+            <div class="user-name" id="display-user-name">Investor</div>
+            <div class="user-tier" id="display-user-email">user@x-capital.com</div>
+          </div>
+        </div>
+        <button class="btn-logout" onclick="logout()">Sign Out</button>
+      </div>
+    </header>
+
+    <main class="content-area">
+
+      <!-- 1. DASHBOARD VIEW -->
+      <section id="view-dashboard" class="page-view active">
+        <div class="hero-banner glass-panel">
+          <h1>X-CAPITAL: Neural Horizon</h1>
+          <p>Invest in Innovation. Build Tomorrow across Tesla, SpaceX, xAI, Neuralink, and Starlink.</p>
+        </div>
+
+        <div class="metrics-row margin-top">
+          <div class="card-dark metric-box">
+            <span class="lbl-muted">Total Portfolio Value</span>
+            <div class="val-hero" id="dash-total-val">$0.00</div>
+          </div>
+          <div class="card-dark metric-box">
+            <span class="lbl-muted">Total Gain / Loss</span>
+            <div class="val-hero" id="dash-gain-val">+$0.00 (+0.00%)</div>
+          </div>
+          <div class="card-dark metric-box relative">
+            <span class="lbl-muted">Available Cleared Balance</span>
+            <div class="val-hero" id="dash-avail-val">$0.00</div>
+            <button class="btn-deposit-pill" onclick="openModal('deposit-modal')">+ Deposit</button>
+          </div>
+        </div>
+
+        <div class="dash-mid-grid margin-top">
+          <div class="card-dark perf-card">
+            <h3>Portfolio Growth Performance</h3>
+            <div class="chart-wrapper margin-top"><canvas id="dashMainChart"></canvas></div>
+          </div>
+
+          <div class="card-dark quick-trade-card">
+            <h3>Quick Order Execution</h3>
+            <div class="form-field margin-top">
+              <label>Asset Target</label>
+              <select class="input-dark" id="q-asset-select">
+                <option value="TSLA">Tesla (TSLA)</option>
+                <option value="SpaceX">SpaceX Index</option>
+                <option value="xAI">xAI Nodes</option>
+              </select>
+            </div>
+            <div class="form-field margin-top">
+              <label>Amount ($ USD)</label>
+              <input type="number" class="input-dark" id="q-amount-input" value="500">
+            </div>
+            <button class="btn-primary-lg margin-top" onclick="executeQuickTrade()">Execute Buy Order ➔</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. PORTFOLIO VIEW -->
+      <section id="view-portfolio" class="page-view">
+        <div class="view-header">
+          <h2>Portfolio Holdings & Performance</h2>
+          <p class="lbl-muted">Itemized view of your active positions and unrealized gain/loss.</p>
+        </div>
+        <div class="card-dark margin-top-lg">
+          <h3>Active Holdings</h3>
+          <table class="table-dark margin-top">
+            <thead>
+              <tr><th>Asset Target</th><th>Units Owned</th><th>Avg Cost</th><th>Current Price</th><th>Total Value</th><th>Gain / Loss</th></tr>
+            </thead>
+            <tbody id="portfolio-table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 3. MARKETS VIEW -->
+      <section id="view-markets" class="page-view">
+        <div class="view-header">
+          <h2>Market Overview</h2>
+          <p class="lbl-muted">Live valuation feed when a verified market-data/NAV provider is connected.</p>
+        </div>
+        <div class="card-dark margin-top-lg">
+          <table class="table-dark">
+            <thead>
+              <tr><th>Asset</th><th>Current Price</th><th>24h Change</th><th>Action</th></tr>
+            </thead>
+            <tbody id="markets-table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 4. TRADE VIEW -->
+      <section id="view-trade" class="page-view">
+        <div class="view-header">
+          <h2>Order Execution Terminal</h2>
+        </div>
+        <div class="card-dark margin-top" style="max-width: 500px;">
+          <h3>Place Market Order</h3>
+          <div class="form-group margin-top">
+            <label>Select Asset</label>
+            <select class="input-dark-lg" id="t-asset-select">
+              <option value="TSLA">Tesla (TSLA)</option>
+              <option value="SpaceX">SpaceX Orbital Index</option>
+              <option value="xAI">xAI Compute Nodes</option>
+              <option value="Neuralink">Neuralink Corp.</option>
+              <option value="Starlink">Starlink Global</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Amount ($ USD)</label>
+            <input type="number" class="input-dark-lg" id="t-amount-input" value="500">
+          </div>
+          <button class="btn-primary-lg margin-top-lg" onclick="executeTradeViewOrder()">Confirm Buy Order ➔</button>
+        </div>
+      </section>
+
+      <!-- 5. INVESTMENTS VIEW -->
+      <section id="view-investments" class="page-view">
+        <div class="view-header">
+          <h2>Managed Investment Funds</h2>
+        </div>
+        <div class="funds-grid-2x2 margin-top">
+          <div class="card-dark fund-card">
+            <h3>Tesla Equity Fund</h3>
+            <p class="lbl-muted">Direct vehicle & battery exposure</p>
+            <button class="btn-primary margin-top" onclick="openInvestmentReview('Tesla Equity Fund', 'TSLA')">Invest Now ➔</button>
+          </div>
+          <div class="card-dark fund-card">
+            <h3>AI Innovation Fund</h3>
+            <p class="lbl-muted">Supercomputing & robotics</p>
+            <button class="btn-primary margin-top" onclick="openInvestmentReview('AI Innovation Fund', 'xAI')">Invest Now ➔</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 6. WALLET VIEW -->
+      <section id="view-wallet" class="page-view">
+        <div class="view-header">
+          <span class="eyebrow">ASSET CUSTODY</span>
+          <h2>Crypto Wallet</h2>
+          <p class="lbl-muted">Manage supported crypto deposits and withdrawal requests.</p>
+        </div>
+        <div class="wallet-hero-grid margin-top-lg">
+          <div class="card-dark wallet-balance-card">
+            <div class="wallet-balance-top"><span class="lbl-muted">Cleared Platform Balance</span><span class="secure-pill">● Ledger verified</span></div>
+            <div class="wallet-big-balance" id="wallet-cleared-balance">$0.00</div>
+            <div class="wallet-actions">
+              <button class="btn-primary-lg" onclick="openModal('deposit-modal')">+ Deposit Crypto</button>
+              <button class="btn-secondary-lg" onclick="openModal('withdraw-modal')">Withdraw</button>
+            </div>
+          </div>
+          <div class="card-dark">
+            <h3>Supported Networks</h3>
+            <div class="network-list margin-top">
+              <div><b>USDT</b><span>TRC-20 · TRON</span><em>Supported</em></div>
+              <div><b>USDC</b><span>ERC-20 · Ethereum</span><em>Supported</em></div>
+              <div><b>BTC</b><span>Bitcoin Mainnet</span><em>Supported</em></div>
+            </div>
+          </div>
+        </div>
+        <div class="card-dark margin-top-lg">
+          <div class="section-heading-inline">
+            <div><h3>Transfer security</h3><p class="lbl-muted">Every deposit requires a TXID and independent verification before credit.</p></div>
+            <span class="security-badge">ENCRYPTED SESSION</span>
+          </div>
+          <div class="security-points">
+            <span>✓ Server-side ledger</span><span>✓ TXID tracking</span><span>✓ Approval workflow</span><span>✓ Audit trail</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 7. TRANSACTIONS VIEW -->
+      <section id="view-transactions" class="page-view">
+        <div class="view-header">
+          <h2>Master Account Ledger</h2>
+        </div>
+        <div class="card-dark margin-top-lg">
+          <table class="table-dark">
+            <thead>
+              <tr><th>Date / Time</th><th>Type</th><th>Details</th><th>Amount ($)</th><th>Status</th></tr>
+            </thead>
+            <tbody id="transactions-table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 8. SETTINGS VIEW -->
+      <section id="view-settings" class="page-view">
+        <div class="view-header">
+          <h2>Account Settings & Security</h2>
+          <p class="lbl-muted">Manage your credentials, preferences, and security profile.</p>
+        </div>
+        <div class="dash-mid-grid margin-top">
+          <div class="card-dark">
+            <h3>👤 Personal Profile</h3>
+            <form onsubmit="updateProfile(event)" class="margin-top">
+              <div class="form-group">
+                <label>Full Name</label>
+                <input type="text" id="settings-name" class="input-dark-lg" required>
+              </div>
+              <div class="form-group">
+                <label>Email Address</label>
+                <input type="email" id="settings-email" class="input-dark-lg" readonly style="opacity:0.6;">
+              </div>
+              <button type="submit" class="btn-primary margin-top-lg">Save Profile Changes</button>
+            </form>
+          </div>
+          <div class="card-dark">
+            <h3>🔒 Security & Password</h3>
+            <form onsubmit="updatePassword(event)" class="margin-top">
+              <div class="form-group">
+                <label>Current Password</label>
+                <input type="password" id="settings-old-pass" class="input-dark-lg" required>
+              </div>
+              <div class="form-group">
+                <label>New Password</label>
+                <input type="password" id="settings-new-pass" class="input-dark-lg" required>
+              </div>
+              <button type="submit" class="btn-primary margin-top-lg">Update Password</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+
+  <!-- EMAIL VERIFICATION MODAL -->
+  <div id="verification-modal" class="modal-overlay hidden">
+    <div class="modal-card glass-panel verification-card">
+      <div class="verification-icon">✉</div>
+      <h3>Verify your email</h3>
+      <p class="lbl-muted">
+        Enter the 6-digit verification code sent to <strong id="verification-email"></strong>.
+        The code expires shortly for your security.
+      </p>
+      <form onsubmit="verifyEmailCode(event)" class="margin-top">
+        <div class="form-group">
+          <label>6-digit verification code</label>
+          <input id="verification-code" class="input-dark-lg verification-code"
+                 inputmode="numeric" autocomplete="one-time-code"
+                 maxlength="6" pattern="[0-9]{6}" placeholder="000000" required>
+        </div>
+        <button type="submit" class="btn-primary-lg margin-top">Verify Email ➔</button>
+      </form>
+      <button class="btn-link margin-top" onclick="resendVerificationCode()">Resend code</button>
+    </div>
+  </div>
+
+
+  <!-- INVESTMENT REVIEW MODAL -->
+  <div id="investment-modal" class="modal-overlay hidden">
+    <div class="modal-card glass-panel">
+      <div class="modal-header">
+        <h3>Review Investment</h3>
+        <button class="close-btn" onclick="closeModal('investment-modal')">✕</button>
+      </div>
+      <div class="modal-body margin-top">
+        <div class="review-grid">
+          <div><span class="lbl-muted">Fund</span><strong id="review-fund">—</strong></div>
+          <div><span class="lbl-muted">Reference price / NAV</span><strong id="review-price">—</strong></div>
+          <div><span class="lbl-muted">Amount</span><strong id="review-amount">—</strong></div>
+          <div><span class="lbl-muted">Estimated units</span><strong id="review-units">—</strong></div>
+        </div>
+        <div class="form-group margin-top">
+          <label>Investment Amount ($ USD)</label>
+          <input id="review-investment-amount" class="input-dark-lg" type="number" min="10" step="0.01" value="500"
+                 oninput="updateInvestmentReview()">
+        </div>
+        <p class="lbl-muted small-note">Final units are calculated by the server at execution using the current approved valuation.</p>
+        <button class="btn-primary-lg margin-top" onclick="confirmInvestment()">Confirm Investment ➔</button>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

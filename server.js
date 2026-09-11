@@ -1,11 +1,16 @@
 
 require("dotenv").config();
+const fs = require("fs");
 const express = require("express");
 const path = require("path");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const Database = require("better-sqlite3");
+
+const dbFile = process.env.DB_FILE || "./data/xcapital.db";
+const dbDir = require("path").dirname(dbFile);
+fs.mkdirSync(dbDir, { recursive: true });
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);

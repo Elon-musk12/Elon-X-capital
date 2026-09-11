@@ -661,7 +661,7 @@ app.post("/api/admin/credits", requireAdmin, (req, res) => {
 });
 
 /* Serve SPA */
-app.get("*", (req, res) => {
+app.get("/*splat", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 

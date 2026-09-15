@@ -2,7 +2,6 @@
   "name": "x-capital-neural-horizon",
   "version": "1.2.0",
   "private": true,
-  "description": "Server-backed X-CAPITAL investment platform with pending email verification and Render-ready deployment configuration.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -12,9 +11,10 @@
     "better-sqlite3": "^11.10.0",
     "dotenv": "^16.4.7",
     "express": "^5.1.0",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^10.0.9"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   }
 }

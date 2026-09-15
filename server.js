@@ -1,17 +1,12 @@
 
 require("dotenv").config();
-const fs = require("fs");
 const express = require("express");
 const path = require("path");
-const publicDir = path.join(__dirname, "public");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
+const nodemailer = require("nodemailer");
 const Database = require("better-sqlite3");
-
-const dbFile = process.env.DB_FILE || "./data/xcapital.db";
-const dbDir = require("path").dirname(dbFile);
-fs.mkdirSync(dbDir, { recursive: true });
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -21,7 +16,6 @@ if (!JWT_SECRET || JWT_SECRET.length < 32) {
 }
 
 app.use(express.json({ limit: "1mb" }));
-app.use(express.static(path.join(__dirname, "public")));
 
 const db = new Database(process.env.DB_FILE || path.join(__dirname, "data", "xcapital.db"));
 db.pragma("journal_mode = WAL");
@@ -49,17 +43,6 @@ CREATE TABLE IF NOT EXISTS otp_codes (
   expires_at TEXT NOT NULL,
   attempts INTEGER NOT NULL DEFAULT 0,
   used INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS pending_registrations (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  email TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
-  code_hash TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
-  attempts INTEGER NOT NULL DEFAULT 0,
-  last_sent_at TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS holdings (
@@ -139,102 +122,24 @@ const WALLET_ADDRESSES = {
   "BTC": process.env.BTC_ADDRESS || ""
 };
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
-const MAIL_FROM = process.env.MAIL_FROM || "X-CAPITAL <onboarding@resend.dev>";
-
-async function sendVerificationEmail(email, name, code) {
-  if (!RESEND_API_KEY) {
-    if (process.env.NODE_ENV !== "production") {
-      console.log(`[DEV OTP] ${email}: ${code}`);
-      return;
-    }
-    throw new Error("RESEND_API_KEY is not configured.");
-  }
-
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: MAIL_FROM,
-      to: [email],
-      subject: "Your X-CAPITAL email verification code",
-      html: `<div style="font-family:Arial,sans-serif;line-height:1.6"><h2>X-CAPITAL</h2><p>Hello ${escapeHtml(name)},</p><p>Your verification code is:</p><p style="font-size:30px;font-weight:700;letter-spacing:8px">${code}</p><p>This code expires in 10 minutes.</p><p>If you did not request this, you can ignore this email.</p></div>`,
-      text: `Hello ${name},\n\nYour X-CAPITAL verification code is ${code}.\nIt expires in 10 minutes.\n\nIf you did not request this, ignore this email.`
-    })
+let mailer = null;
+if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+  mailer = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: String(process.env.SMTP_SECURE || "false") === "true",
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
   });
-
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`Email provider rejected the message (${response.status}). ${detail.slice(0, 300)}`);
-  }
-}
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
-}
-
-function makeOtp() {
-  const code = String(crypto.randomInt(100000, 1000000));
-  return { code, hash: hashText(code), expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() };
-}
-
-function pendingByEmail(email) {
-  return db.prepare("SELECT * FROM pending_registrations WHERE email = ?").get(email);
-}
-
-async function createPendingRegistration({ name, email, passwordHash }) {
-  const existing = pendingByEmail(email);
-  if (existing && Date.now() - new Date(existing.last_sent_at).getTime() < 60 * 1000) {
-    throw Object.assign(new Error("A verification code was already sent. Please wait a minute before requesting another."), { status: 429 });
-  }
-
-  const otp = makeOtp();
-  const pending = {
-    id: existing?.id || id(),
-    name,
-    email,
-    password_hash: passwordHash,
-    code_hash: otp.hash,
-    expires_at: otp.expiresAt,
-    attempts: 0,
-    last_sent_at: now(),
-    created_at: existing?.created_at || now()
-  };
-
-  db.prepare(`
-    INSERT INTO pending_registrations (id,name,email,password_hash,code_hash,expires_at,attempts,last_sent_at,created_at)
-    VALUES (@id,@name,@email,@password_hash,@code_hash,@expires_at,@attempts,@last_sent_at,@created_at)
-    ON CONFLICT(email) DO UPDATE SET
-      name=excluded.name,
-      password_hash=excluded.password_hash,
-      code_hash=excluded.code_hash,
-      expires_at=excluded.expires_at,
-      attempts=excluded.attempts,
-      last_sent_at=excluded.last_sent_at
-  `).run(pending);
-
-  try {
-    await sendVerificationEmail(email, name, otp.code);
-  } catch (e) {
-    db.prepare("DELETE FROM pending_registrations WHERE email = ?").run(email);
-    throw e;
-  }
 }
 
 function issueSession(res, user) {
   const token = jwt.sign({ sub: user.id, role: user.role }, JWT_SECRET, { expiresIn: "7d" });
-  const parts = [
-    `xcapital_session=${encodeURIComponent(token)}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    `Max-Age=${7 * 24 * 60 * 60}`
-  ];
-  if (process.env.NODE_ENV === "production") parts.push("Secure");
-  res.setHeader("Set-Cookie", parts.join("; "));
+  res.cookie("xcapital_session", token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1000
+  });
 }
 
 function clearSession(res) {
@@ -265,30 +170,29 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-
-function bootstrapAdmin() {
-  const email = String(process.env.ADMIN_EMAIL || "").trim().toLowerCase();
-  const password = String(process.env.ADMIN_PASSWORD || "");
-  if (!email || !password) {
-    console.log("Admin bootstrap skipped: ADMIN_EMAIL/ADMIN_PASSWORD not configured.");
+async function sendVerificationEmail(email, name, code) {
+  if (!mailer) {
+    if (process.env.NODE_ENV !== "production") console.log(`[DEV OTP] ${email}: ${code}`);
     return;
   }
-  if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error("ADMIN_EMAIL must be a valid email address.");
-  if (password.length < 8) throw new Error("ADMIN_PASSWORD must be at least 8 characters.");
-  const existing = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
-  const passwordHash = bcrypt.hashSync(password, 12);
-  if (existing) {
-    db.prepare("UPDATE users SET role='admin', email_verified=1, password_hash=? WHERE id=?").run(passwordHash, existing.id);
-    console.log(`Admin bootstrap ready for ${email} (existing account promoted/verified).`);
-    return;
-  }
-  const admin = { id: id(), name: "X-CAPITAL Administrator", email, password_hash: passwordHash, role: "admin", email_verified: 1, available_balance: 0, created_at: now() };
-  db.prepare(`INSERT INTO users (id,name,email,password_hash,role,email_verified,available_balance,created_at) VALUES (@id,@name,@email,@password_hash,@role,@email_verified,@available_balance,@created_at)`).run(admin);
-  db.prepare(`INSERT INTO transactions (id,user_id,type,details,amount,status,created_at) VALUES (?,?,?,?,?,?,?)`).run(id(), admin.id, "System", "Admin account bootstrapped from Render environment", 0, "Completed", now());
-  console.log(`Admin bootstrap created ${email}.`);
+  await mailer.sendMail({
+    from: process.env.MAIL_FROM || process.env.SMTP_USER,
+    to: email,
+    subject: "Your X-CAPITAL email verification code",
+    text: `Hello ${name},\n\nYour X-CAPITAL verification code is ${code}.\nIt expires in 10 minutes.\n\nIf you did not create this account, ignore this email.`
+  });
 }
 
-bootstrapAdmin();
+async function createOtp(user) {
+  const code = String(crypto.randomInt(100000, 1000000));
+  const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  db.prepare("UPDATE otp_codes SET used = 1 WHERE user_id = ? AND used = 0").run(user.id);
+  db.prepare(`
+    INSERT INTO otp_codes (id, user_id, code_hash, expires_at, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(id(), user.id, hashText(code), expires, now());
+  await sendVerificationEmail(user.email, user.name, code);
+}
 
 function publicUser(user) {
   return {
@@ -365,89 +269,73 @@ app.post("/api/auth/register", async (req, res) => {
     if (password.length < 8) return res.status(400).json({ message: "Password must be at least 8 characters." });
     if (db.prepare("SELECT id FROM users WHERE email = ?").get(email)) return res.status(409).json({ message: "An account with this email already exists." });
 
-    await createPendingRegistration({ name, email, passwordHash: await bcrypt.hash(password, 12) });
-    res.json({ ok: true, message: "Verification code sent. Your account will be created after you verify your email." });
+    const user = { id: id(), name, email, role: "investor", password_hash: await bcrypt.hash(password, 12), email_verified: 0, available_balance: 0, created_at: now() };
+    db.prepare(`
+      INSERT INTO users (id,name,email,password_hash,role,email_verified,available_balance,created_at)
+      VALUES (@id,@name,@email,@password_hash,@role,@email_verified,@available_balance,@created_at)
+    `).run(user);
+    db.prepare(`INSERT INTO transactions (id,user_id,type,details,amount,status,created_at) VALUES (?,?,?,?,?,?,?)`)
+      .run(id(), user.id, "System", "Account created", 0, "Completed", now());
+
+    await createOtp(user);
+    res.json({ ok: true, message: "Account created. A 6-digit verification code has been sent to your email." });
   } catch (e) {
     console.error(e);
-    const status = e.status || 500;
-    res.status(status).json({ message: status === 429 ? e.message : "We could not send the verification email. Your account was not created. Please try again." });
+    res.status(500).json({ message: "Unable to create the account right now." });
   }
 });
 
 app.post("/api/auth/verify-email", async (req, res) => {
   const email = String(req.body.email || "").trim().toLowerCase();
   const code = String(req.body.code || "").trim();
-  const pending = pendingByEmail(email);
-  if (!pending) return res.status(404).json({ message: "No pending registration was found for this email." });
-  if (new Date(pending.expires_at) < new Date()) return res.status(400).json({ message: "That code has expired. Request a new one." });
-  if (pending.attempts >= 5) return res.status(429).json({ message: "Too many attempts. Request a new code." });
+  const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  if (!user) return res.status(404).json({ message: "Account not found." });
 
-  db.prepare("UPDATE pending_registrations SET attempts = attempts + 1 WHERE id = ?").run(pending.id);
-  if (hashText(code) !== pending.code_hash) return res.status(400).json({ message: "Incorrect verification code." });
+  const otp = db.prepare("SELECT * FROM otp_codes WHERE user_id = ? AND used = 0 ORDER BY created_at DESC LIMIT 1").get(user.id);
+  if (!otp) return res.status(400).json({ message: "No active verification code. Request a new code." });
+  if (new Date(otp.expires_at) < new Date()) return res.status(400).json({ message: "That code has expired. Request a new one." });
+  if (otp.attempts >= 5) return res.status(429).json({ message: "Too many attempts. Request a new code." });
 
-  const user = { id: id(), name: pending.name, email: pending.email, role: "investor", password_hash: pending.password_hash, email_verified: 1, available_balance: 0, created_at: now() };
-  const finish = db.transaction(() => {
-    if (db.prepare("SELECT id FROM users WHERE email = ?").get(email)) throw new Error("An account with this email already exists.");
-    db.prepare(`INSERT INTO users (id,name,email,password_hash,role,email_verified,available_balance,created_at) VALUES (@id,@name,@email,@password_hash,@role,@email_verified,@available_balance,@created_at)`).run(user);
-    db.prepare(`INSERT INTO transactions (id,user_id,type,details,amount,status,created_at) VALUES (?,?,?,?,?,?,?)`).run(id(), user.id, "System", "Account created after email verification", 0, "Completed", now());
-    db.prepare("DELETE FROM pending_registrations WHERE id = ?").run(pending.id);
-  });
+  db.prepare("UPDATE otp_codes SET attempts = attempts + 1 WHERE id = ?").run(otp.id);
+  if (hashText(code) !== otp.code_hash) return res.status(400).json({ message: "Incorrect verification code." });
 
-  try {
-    finish();
-  } catch (e) {
-    console.error(e);
-    return res.status(409).json({ message: "We could not finish creating this account. Please try registration again." });
-  }
-
-  issueSession(res, user);
-  logAudit(user, "account_created_after_email_verification", user.id);
-  res.json({ ok: true, message: "Email verified successfully. Your account is ready and you are now signed in." });
+  db.prepare("UPDATE otp_codes SET used = 1 WHERE id = ?").run(otp.id);
+  db.prepare("UPDATE users SET email_verified = 1 WHERE id = ?").run(user.id);
+  const verified = db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
+  issueSession(res, verified);
+  logAudit(verified, "email_verified", verified.id);
+  res.json({ ok: true, message: "Email verified successfully. You are now signed in." });
 });
 
 app.post("/api/auth/resend-code", async (req, res) => {
   const email = String(req.body.email || "").trim().toLowerCase();
-  const pending = pendingByEmail(email);
-  if (!pending) {
-    const user = db.prepare("SELECT id,email_verified FROM users WHERE email = ?").get(email);
-    if (user?.email_verified) return res.status(400).json({ message: "This email is already verified." });
-    return res.status(404).json({ message: "No pending registration was found for this email." });
-  }
+  const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  if (!user) return res.status(404).json({ message: "Account not found." });
+  if (user.email_verified) return res.status(400).json({ message: "This email is already verified." });
+  await createOtp(user);
+  res.json({ ok: true, message: "A new verification code has been sent." });
+});
 
-  if (Date.now() - new Date(pending.last_sent_at).getTime() < 60 * 1000) {
-    return res.status(429).json({ message: "Please wait a minute before requesting another code." });
+/* Auth route method guard: API routes must be handled before static/SPA fallback. */
+app.all("/api/auth/login", (req, res, next) => {
+  if (req.method !== "POST") {
+    return res.status(405).json({ message: "Method Not Allowed. Use POST /api/auth/login." });
   }
-
-  try {
-    await createPendingRegistration({ name: pending.name, email, passwordHash: pending.password_hash });
-    res.json({ ok: true, message: "A new verification code has been sent." });
-  } catch (e) {
-    console.error(e);
-    res.status(e.status || 500).json({ message: e.status === 429 ? e.message : "We could not send a new verification email." });
-  }
+  next();
 });
 
 app.post("/api/auth/login", async (req, res) => {
   const email = String(req.body.email || "").trim().toLowerCase();
   const password = String(req.body.password || "");
-  console.log(`[AUTH] POST /api/auth/login received for ${email}`);
   const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
-  if (!user) {
-    const pending = pendingByEmail(email);
-    if (pending && await bcrypt.compare(password, pending.password_hash)) {
-      return res.status(403).json({ message: "Please verify your email first.", requiresVerification: true });
-    }
-    return res.status(401).json({ message: "Invalid email or password." });
+  if (!user || !(await bcrypt.compare(password, user.password_hash))) return res.status(401).json({ message: "Invalid email or password." });
+  if (!user.email_verified) {
+    await createOtp(user);
+    return res.status(403).json({ message: "Please verify your email first.", requiresVerification: true });
   }
-  if (!(await bcrypt.compare(password, user.password_hash))) {
-    console.log(`[AUTH] Login rejected: invalid password for ${email}`);
-    return res.status(401).json({ message: "Invalid email or password." });
-  }
-  if (!user.email_verified) return res.status(403).json({ message: "Please verify your email first.", requiresVerification: true });
   issueSession(res, user);
   logAudit(user, "login", user.id);
-  console.log(`[AUTH] Login successful: ${email} role=${user.role}`);
-  return res.status(200).json({ ok: true, user: publicUser(user) });
+  res.json({ ok: true, user: publicUser(user) });
 });
 
 app.post("/api/auth/logout", (req, res) => {
@@ -457,7 +345,9 @@ app.post("/api/auth/logout", (req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/api/auth/me", requireAuth, (req, res) => res.json({ user: publicUser(req.user) }));
+app.get("/api/auth/me", requireAuth, (req, res) => {
+  res.json({ user: publicUser(req.user) });
+});
 
 /* User dashboard */
 app.get("/api/dashboard", requireAuth, (req, res) => {
@@ -681,10 +571,10 @@ app.post("/api/admin/credits", requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-/* Serve SPA */
-app.use(express.static(publicDir));
+app.use(express.static(path.join(__dirname, "public")));
 
-app.get("/*splat", (req, res) => {
+/* Serve SPA */
+app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
